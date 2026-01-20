@@ -16,3 +16,7 @@ eks_node_max_size       = 10
 # High availability - NAT gateway per AZ
 single_nat_gateway = false
 enable_nat_gateway = true
+
+# Security: Restrict API access to specific IP ranges for production
+# Uncomment and modify the line below to restrict access to your organization's IPs
+# cluster_endpoint_public_access_cidrs = ["203.0.113.0/24", "198.51.100.0/24"]

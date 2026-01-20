@@ -68,3 +68,9 @@ variable "single_nat_gateway" {
   type        = bool
   default     = true
 }
+
+variable "cluster_endpoint_public_access_cidrs" {
+  description = "List of CIDR blocks that can access the EKS cluster endpoint. Defaults to allow all."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}

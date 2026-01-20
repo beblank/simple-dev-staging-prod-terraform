@@ -43,13 +43,17 @@ resource "aws_security_group" "eks_cluster" {
 }
 
 resource "aws_security_group_rule" "cluster_ingress_workstation_https" {
-  cidr_blocks       = ["0.0.0.0/0"]
+  cidr_blocks       = var.cluster_endpoint_public_access_cidrs
   description       = "Allow workstation to communicate with the cluster API Server"
   from_port         = 443
   protocol          = "tcp"
   security_group_id = aws_security_group.eks_cluster.id
   to_port           = 443
   type              = "ingress"
+
+  # Note: Default allows HTTPS access from any IP address. EKS API server still requires
+  # AWS IAM authentication. For production, consider restricting to specific IP ranges
+  # or VPN/bastion host CIDR blocks by setting cluster_endpoint_public_access_cidrs variable.
 }
 
 # EKS Cluster
