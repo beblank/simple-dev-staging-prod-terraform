@@ -67,6 +67,7 @@ resource "aws_eks_cluster" "main" {
     subnet_ids              = concat(aws_subnet.public[*].id, aws_subnet.private[*].id)
     endpoint_private_access = true
     endpoint_public_access  = true
+    public_access_cidrs     = var.cluster_endpoint_public_access_cidrs
   }
 
   depends_on = [
