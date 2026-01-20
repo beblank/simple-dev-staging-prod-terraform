@@ -254,10 +254,31 @@ SSM Session Manager provides secure, audited access without opening inbound port
    # Create S3 bucket for session logs
    aws s3 mb s3://vapt-session-logs-bucket
    
-   # Configure Session Manager to log to S3
-   aws ssm update-document \
+   # Create session preferences document
+   cat > session-preferences.json <<EOF
+   {
+     "schemaVersion": "1.0",
+     "description": "Document to hold regional settings for Session Manager",
+     "sessionType": "Standard_Stream",
+     "inputs": {
+       "s3BucketName": "vapt-session-logs-bucket",
+       "s3KeyPrefix": "session-logs/",
+       "s3EncryptionEnabled": true,
+       "cloudWatchLogGroupName": "/aws/ssm/session-logs",
+       "cloudWatchEncryptionEnabled": true
+     }
+   }
+   EOF
+   
+   # Update Session Manager preferences
+   aws ssm create-document \
      --name "SSM-SessionManagerRunShell" \
-     --content file://session-preferences.json
+     --document-type "Session" \
+     --content file://session-preferences.json \
+     || aws ssm update-document \
+       --name "SSM-SessionManagerRunShell" \
+       --content file://session-preferences.json \
+       --document-version '$LATEST'
    ```
 
 ---
@@ -313,7 +334,7 @@ This method creates an IAM user and maps it to a Kubernetes RBAC role with limit
        - userarn: arn:aws:iam::123456789012:user/vapt-vendor-eks
          username: vapt-vendor
          groups:
-           - vapt-readonly
+           - vapt-readonly  # Use vapt-testing for write access
    ```
 
 3. **Create Kubernetes RBAC Role and RoleBinding**
@@ -352,51 +373,75 @@ This method creates an IAM user and maps it to a Kubernetes RBAC role with limit
 
    ```yaml
    # vapt-rbac-testing.yaml
-   apiVersion: rbac.authorization.k8s.io/v1
-   kind: ClusterRole
-   metadata:
-     name: vapt-testing
-   rules:
-   # Read access to all resources
-   - apiGroups: ["*"]
-     resources: ["*"]
-     verbs: ["get", "list", "watch"]
-   # Write access to specific namespace
-   - apiGroups: [""]
-     resources: ["pods", "services", "configmaps", "secrets"]
-     verbs: ["create", "delete", "patch", "update"]
-   - apiGroups: ["apps"]
-     resources: ["deployments", "replicasets"]
-     verbs: ["create", "delete", "patch", "update"]
-   # Deny dangerous operations
-   - apiGroups: [""]
-     resources: ["nodes"]
-     verbs: []  # No node operations
-   ---
+   # Create dedicated namespace for VAPT testing
    apiVersion: v1
    kind: Namespace
    metadata:
      name: vapt-testing
    ---
+   # ClusterRole for read-only access to all cluster resources
    apiVersion: rbac.authorization.k8s.io/v1
-   kind: RoleBinding
+   kind: ClusterRole
    metadata:
-     name: vapt-testing-binding
+     name: vapt-cluster-readonly
+   rules:
+   - apiGroups: ["*"]
+     resources: ["*"]
+     verbs: ["get", "list", "watch"]
+   ---
+   # Role for write access within vapt-testing namespace only
+   apiVersion: rbac.authorization.k8s.io/v1
+   kind: Role
+   metadata:
+     name: vapt-testing-writer
      namespace: vapt-testing
+   rules:
+   - apiGroups: [""]
+     resources: ["pods", "services", "configmaps"]
+     verbs: ["create", "delete", "patch", "update", "get", "list", "watch"]
+   - apiGroups: ["apps"]
+     resources: ["deployments", "replicasets"]
+     verbs: ["create", "delete", "patch", "update", "get", "list", "watch"]
+   # Note: Secrets access is intentionally excluded for security
+   ---
+   # ClusterRoleBinding for cluster-wide read access
+   apiVersion: rbac.authorization.k8s.io/v1
+   kind: ClusterRoleBinding
+   metadata:
+     name: vapt-cluster-readonly-binding
    subjects:
    - kind: Group
-     name: vapt-readonly
+     name: vapt-testing
      apiGroup: rbac.authorization.k8s.io
    roleRef:
      kind: ClusterRole
+     name: vapt-cluster-readonly
+     apiGroup: rbac.authorization.k8s.io
+   ---
+   # RoleBinding for namespace-specific write access
+   apiVersion: rbac.authorization.k8s.io/v1
+   kind: RoleBinding
+   metadata:
+     name: vapt-testing-writer-binding
+     namespace: vapt-testing
+   subjects:
+   - kind: Group
      name: vapt-testing
+     apiGroup: rbac.authorization.k8s.io
+   roleRef:
+     kind: Role
+     name: vapt-testing-writer
      apiGroup: rbac.authorization.k8s.io
    ```
 
    Apply the RBAC configuration:
 
    ```bash
+   # For read-only access
    kubectl apply -f vapt-rbac.yaml
+   
+   # For testing with write access in dedicated namespace
+   kubectl apply -f vapt-rbac-testing.yaml
    ```
 
 4. **Generate kubeconfig for VAPT Vendor**
