@@ -256,8 +256,22 @@ SSM Session Manager provides secure, audited access without opening inbound port
 5. **Enable Session Logging (Optional but Recommended)**
 
    ```bash
-   # Create S3 bucket for session logs
-   aws s3 mb s3://vapt-session-logs-bucket
+   # Create S3 bucket for session logs with security configurations
+   BUCKET_NAME="vapt-session-logs-$(date +%Y%m%d)"
+   REGION="us-east-1"
+   
+   aws s3 mb s3://${BUCKET_NAME} --region ${REGION}
+   
+   # Block public access
+   aws s3api put-public-access-block \
+     --bucket ${BUCKET_NAME} \
+     --public-access-block-configuration \
+       BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+   
+   # Enable encryption
+   aws s3api put-bucket-encryption \
+     --bucket ${BUCKET_NAME} \
+     --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
    
    # Create session preferences document
    cat > session-preferences.json <<EOF
@@ -266,7 +280,7 @@ SSM Session Manager provides secure, audited access without opening inbound port
      "description": "Document to hold regional settings for Session Manager",
      "sessionType": "Standard_Stream",
      "inputs": {
-       "s3BucketName": "vapt-session-logs-bucket",
+       "s3BucketName": "${BUCKET_NAME}",
        "s3KeyPrefix": "session-logs/",
        "s3EncryptionEnabled": true,
        "cloudWatchLogGroupName": "/aws/ssm/session-logs",
@@ -318,6 +332,7 @@ This method creates an IAM user and maps it to a Kubernetes RBAC role with limit
    ```bash
    # Get current cluster name
    CLUSTER_NAME="simple-eks-dev"  # or staging/prod
+   ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
    
    # Get current aws-auth ConfigMap
    kubectl get configmap aws-auth -n kube-system -o yaml > aws-auth-backup.yaml
@@ -326,7 +341,7 @@ This method creates an IAM user and maps it to a Kubernetes RBAC role with limit
    kubectl edit configmap aws-auth -n kube-system
    ```
 
-   Add this section under `mapUsers` (replace YOUR_ACCOUNT_ID with your AWS account ID):
+   Add this section under `mapUsers`:
 
    ```yaml
    apiVersion: v1
@@ -336,7 +351,7 @@ This method creates an IAM user and maps it to a Kubernetes RBAC role with limit
      namespace: kube-system
    data:
      mapUsers: |
-       - userarn: arn:aws:iam::YOUR_ACCOUNT_ID:user/vapt-vendor-eks
+       - userarn: arn:aws:iam::${ACCOUNT_ID}:user/vapt-vendor-eks
          username: vapt-vendor
          groups:
            - vapt-readonly  # For read-only access
@@ -550,9 +565,13 @@ Create a temporary IAM role that VAPT vendor can assume.
 
 2. **Update aws-auth ConfigMap**
 
+   ```bash
+   ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+   ```
+
    ```yaml
    mapRoles: |
-     - rolearn: arn:aws:iam::123456789012:role/VAPT-EKS-Access-Role
+     - rolearn: arn:aws:iam::${ACCOUNT_ID}:role/VAPT-EKS-Access-Role
        username: vapt-vendor
        groups:
          - vapt-readonly
@@ -735,13 +754,9 @@ For scenarios where direct EKS API access is not desirable, use a bastion host.
 
 1. Delete IAM user access keys:
    ```bash
-   # List access keys for the user
-   aws iam list-access-keys --user-name vapt-vendor-ssm
-   
-   # Delete the access key (replace with actual key ID)
-   aws iam delete-access-key \
-     --user-name vapt-vendor-ssm \
-     --access-key-id YOUR_ACCESS_KEY_ID
+   # List and delete all access keys for the user
+   aws iam list-access-keys --user-name vapt-vendor-ssm --query 'AccessKeyMetadata[].AccessKeyId' --output text | \
+     xargs -I {} aws iam delete-access-key --user-name vapt-vendor-ssm --access-key-id {}
    ```
 
 2. Terminate active sessions:
@@ -807,9 +822,45 @@ For scenarios where direct EKS API access is not desirable, use a bastion host.
 
 1. **Enable CloudTrail** (if not already enabled):
    ```bash
+   # Create S3 bucket for CloudTrail logs
+   TRAIL_BUCKET="vapt-audit-logs-$(date +%Y%m%d)"
+   REGION="us-east-1"
+   ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+   
+   aws s3 mb s3://${TRAIL_BUCKET} --region ${REGION}
+   
+   # Apply bucket policy for CloudTrail
+   cat > cloudtrail-bucket-policy.json <<EOF
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Sid": "AWSCloudTrailAclCheck",
+         "Effect": "Allow",
+         "Principal": {"Service": "cloudtrail.amazonaws.com"},
+         "Action": "s3:GetBucketAcl",
+         "Resource": "arn:aws:s3:::${TRAIL_BUCKET}"
+       },
+       {
+         "Sid": "AWSCloudTrailWrite",
+         "Effect": "Allow",
+         "Principal": {"Service": "cloudtrail.amazonaws.com"},
+         "Action": "s3:PutObject",
+         "Resource": "arn:aws:s3:::${TRAIL_BUCKET}/AWSLogs/${ACCOUNT_ID}/*",
+         "Condition": {
+           "StringEquals": {"s3:x-amz-acl": "bucket-owner-full-control"}
+         }
+       }
+     ]
+   }
+   EOF
+   
+   aws s3api put-bucket-policy --bucket ${TRAIL_BUCKET} --policy file://cloudtrail-bucket-policy.json
+   
+   # Create and start the trail
    aws cloudtrail create-trail \
      --name vapt-audit-trail \
-     --s3-bucket-name vapt-audit-logs
+     --s3-bucket-name ${TRAIL_BUCKET}
    
    aws cloudtrail start-logging --name vapt-audit-trail
    ```
