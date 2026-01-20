@@ -97,12 +97,13 @@ case $COMMAND in
         print_info "Applying changes..."
         terraform apply -var-file="$VAR_FILE"
         
-        # Get cluster name from output
+        # Get cluster name and region from output
         CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "")
+        AWS_REGION=$(terraform output -raw aws_region 2>/dev/null || echo "us-east-1")
         if [ -n "$CLUSTER_NAME" ]; then
             print_info "Deployment complete!"
             print_info "To configure kubectl, run:"
-            echo "aws eks update-kubeconfig --region us-east-1 --name $CLUSTER_NAME"
+            echo "aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME"
         fi
         ;;
     
@@ -125,12 +126,13 @@ case $COMMAND in
     
     kubeconfig)
         CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "")
+        AWS_REGION=$(terraform output -raw aws_region 2>/dev/null || echo "us-east-1")
         if [ -z "$CLUSTER_NAME" ]; then
             print_error "Could not get cluster name. Is the infrastructure deployed?"
             exit 1
         fi
         print_info "Updating kubectl configuration for cluster: $CLUSTER_NAME"
-        aws eks update-kubeconfig --region us-east-1 --name "$CLUSTER_NAME"
+        aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER_NAME"
         print_info "kubectl configured successfully"
         print_info "Verifying connection..."
         kubectl get nodes

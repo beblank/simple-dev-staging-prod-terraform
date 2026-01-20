@@ -58,3 +58,8 @@ output "configure_kubectl" {
   description = "Configure kubectl: make sure you're logged in with the correct AWS profile and run the following command to update your kubeconfig"
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${aws_eks_cluster.main.name}"
 }
+
+output "aws_region" {
+  description = "AWS region where the cluster is deployed"
+  value       = var.aws_region
+}
