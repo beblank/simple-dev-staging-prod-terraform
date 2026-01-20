@@ -67,7 +67,7 @@ Traditional SSH access using temporary key pairs.
      --protocol tcp \
      --port 22 \
      --cidr $VAPT_VENDOR_IP \
-     --description "Temporary VAPT vendor access - Expires: 2024-12-31"
+     --description "Temporary VAPT vendor access - Expires: 2026-06-30"
    ```
 
 3. **Create and Share SSH Key**
@@ -641,7 +641,7 @@ For scenarios where direct EKS API access is not desirable, use a bastion host.
      ```bash
      aws iam tag-user \
        --user-name vapt-vendor-eks \
-       --tags Key=ExpiryDate,Value=2024-12-31 Key=Purpose,Value=VAPT-Assessment
+       --tags Key=ExpiryDate,Value=2026-06-30 Key=Purpose,Value=VAPT-Assessment
      ```
 
 2. **IP Whitelisting**
@@ -876,4 +876,4 @@ For questions or issues with VAPT vendor access:
 
 | Date | Version | Changes |
 |------|---------|---------|
-| 2024-01-20 | 1.0 | Initial documentation |
+| 2026-01-20 | 1.0 | Initial documentation |
