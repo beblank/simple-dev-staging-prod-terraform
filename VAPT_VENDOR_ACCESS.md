@@ -182,6 +182,9 @@ SSM Session Manager provides secure, audited access without opening inbound port
 2. **Create IAM Policy for Specific Instance Access**
 
    ```bash
+   # Get your AWS account ID
+   ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+   
    cat > vapt-ssm-policy.json <<EOF
    {
      "Version": "2012-10-17",
@@ -192,7 +195,7 @@ SSM Session Manager provides secure, audited access without opening inbound port
            "ssm:StartSession"
          ],
          "Resource": [
-           "arn:aws:ec2:us-east-1:123456789012:instance/$INSTANCE_ID",
+           "arn:aws:ec2:us-east-1:${ACCOUNT_ID}:instance/${INSTANCE_ID}",
            "arn:aws:ssm:*:*:document/AWS-StartSSHSession",
            "arn:aws:ssm:*:*:document/AWS-StartPortForwardingSession"
          ]
@@ -219,13 +222,15 @@ SSM Session Manager provides secure, audited access without opening inbound port
    EOF
    
    # Create and attach policy
-   aws iam create-policy \
+   POLICY_ARN=$(aws iam create-policy \
      --policy-name VAPT-SSM-Access-Policy \
-     --policy-document file://vapt-ssm-policy.json
+     --policy-document file://vapt-ssm-policy.json \
+     --query 'Policy.Arn' \
+     --output text)
    
    aws iam attach-user-policy \
      --user-name vapt-vendor-ssm \
-     --policy-arn arn:aws:iam::123456789012:policy/VAPT-SSM-Access-Policy
+     --policy-arn $POLICY_ARN
    ```
 
 3. **Share Credentials with VAPT Vendor**
@@ -321,7 +326,7 @@ This method creates an IAM user and maps it to a Kubernetes RBAC role with limit
    kubectl edit configmap aws-auth -n kube-system
    ```
 
-   Add this section under `mapUsers`:
+   Add this section under `mapUsers` (replace YOUR_ACCOUNT_ID with your AWS account ID):
 
    ```yaml
    apiVersion: v1
@@ -331,10 +336,11 @@ This method creates an IAM user and maps it to a Kubernetes RBAC role with limit
      namespace: kube-system
    data:
      mapUsers: |
-       - userarn: arn:aws:iam::123456789012:user/vapt-vendor-eks
+       - userarn: arn:aws:iam::YOUR_ACCOUNT_ID:user/vapt-vendor-eks
          username: vapt-vendor
          groups:
-           - vapt-readonly  # Use vapt-testing for write access
+           - vapt-readonly  # For read-only access
+           # - vapt-testing  # For write access in testing namespace
    ```
 
 3. **Create Kubernetes RBAC Role and RoleBinding**
@@ -514,6 +520,8 @@ Create a temporary IAM role that VAPT vendor can assume.
 
 1. **Create IAM Role with Trust Policy**
 
+   Note: Instead of trusting the entire VAPT vendor account root, request specific IAM user or role ARN from the VAPT vendor for better security.
+
    ```bash
    cat > vapt-trust-policy.json <<EOF
    {
@@ -522,7 +530,7 @@ Create a temporary IAM role that VAPT vendor can assume.
        {
          "Effect": "Allow",
          "Principal": {
-           "AWS": "arn:aws:iam::VAPT_VENDOR_ACCOUNT_ID:root"
+           "AWS": "arn:aws:iam::VAPT_VENDOR_ACCOUNT_ID:user/vapt-engineer"
          },
          "Action": "sts:AssumeRole",
          "Condition": {
@@ -727,9 +735,13 @@ For scenarios where direct EKS API access is not desirable, use a bastion host.
 
 1. Delete IAM user access keys:
    ```bash
+   # List access keys for the user
+   aws iam list-access-keys --user-name vapt-vendor-ssm
+   
+   # Delete the access key (replace with actual key ID)
    aws iam delete-access-key \
      --user-name vapt-vendor-ssm \
-     --access-key-id AKIAIOSFODNN7EXAMPLE
+     --access-key-id YOUR_ACCESS_KEY_ID
    ```
 
 2. Terminate active sessions:
@@ -757,8 +769,20 @@ For scenarios where direct EKS API access is not desirable, use a bastion host.
 
 3. Delete IAM user:
    ```bash
-   aws iam delete-access-key --user-name vapt-vendor-eks --access-key-id AKIAIOSFODNN7EXAMPLE
-   aws iam detach-user-policy --user-name vapt-vendor-eks --policy-arn arn:aws:iam::123456789012:policy/VAPT-EKS-Access-Policy
+   # Get the policy ARN (if you need to find it)
+   POLICY_ARN=$(aws iam list-attached-user-policies \
+     --user-name vapt-vendor-eks \
+     --query 'AttachedPolicies[?PolicyName==`VAPT-EKS-Access-Policy`].PolicyArn' \
+     --output text)
+   
+   # Delete access keys first
+   aws iam list-access-keys --user-name vapt-vendor-eks --query 'AccessKeyMetadata[].AccessKeyId' --output text | \
+     xargs -I {} aws iam delete-access-key --user-name vapt-vendor-eks --access-key-id {}
+   
+   # Detach and delete the policy
+   aws iam detach-user-policy --user-name vapt-vendor-eks --policy-arn $POLICY_ARN
+   
+   # Delete the user
    aws iam delete-user --user-name vapt-vendor-eks
    ```
 
