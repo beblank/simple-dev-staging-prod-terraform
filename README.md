@@ -165,6 +165,9 @@ terraform destroy -var-file="environments/prod/terraform.tfvars"
 ```
 .
 ├── README.md                           # This file
+├── VAPT_VENDOR_ACCESS.md               # Guide for granting VAPT vendor access
+├── ENVIRONMENTS.md                     # Environment comparison guide
+├── IMPLEMENTATION.md                   # Implementation details
 ├── main.tf                             # EKS cluster and node group configuration
 ├── vpc.tf                              # VPC and networking configuration
 ├── variables.tf                        # Variable definitions
@@ -189,6 +192,7 @@ terraform destroy -var-file="environments/prod/terraform.tfvars"
 - Regularly update EKS cluster version and node AMIs
 - Implement network policies in Kubernetes
 - Use AWS Secrets Manager or AWS Systems Manager Parameter Store for sensitive data
+- **For VAPT vendor access**: See [VAPT_VENDOR_ACCESS.md](VAPT_VENDOR_ACCESS.md) for detailed guide on granting temporary access to security assessment vendors
 
 ## Cost Estimation
 
